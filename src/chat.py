@@ -1,54 +1,83 @@
 import os
 from dotenv import load_dotenv
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_postgres import PGVector
-from src.search import PROMPT_TEMPLATE
+from src.search import vector_search
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_classic.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate
-from langchain_classic.chains import LLMChain
 
-load_dotenv()
+PROMPT_TEMPLATE = """
+Você é um assistente especializado que responde perguntas baseando-se estritamente em um banco de dados vetorial de documentos.
+Você tem acesso às seguintes ferramentas:
 
-for k in ("GOOGLE_API_KEY", "PGVECTOR_URL", "PGVECTOR_COLLECTION"):
-    if not os.getenv(k):
-        raise RuntimeError(f"Environment variable {k} is not set")
+{tools}
 
-embeddings = GoogleGenerativeAIEmbeddings(
-    model=os.getenv("GEMINI_MODEL", "models/gemini-embedding-001")
-)
+Para usar as ferramentas, siga ESTRITAMENTE o formato abaixo. Não adicione nenhum texto explicativo fora desse formato:
 
-store = PGVector(
-    embeddings=embeddings,
-    collection_name=os.getenv("PGVECTOR_COLLECTION"),
-    connection=os.getenv("PGVECTOR_URL"),
-    use_jsonb=True,
-)
+Thought: O que eu preciso fazer ou o que eu preciso buscar.
+Action: a ferramenta a ser usada (uma das seguintes: {tool_names}).
+Action Input: o texto da busca.
+Observation: O resultado retornado pela ferramenta.
+... (este ciclo Thought/Action/Action Input/Observation pode se repetir N vezes)
+Thought: Eu tenho as informações necessárias para responder (ou não tenho).
+Final Answer: [sua resposta final para o usuário].
 
-prompt = PromptTemplate(
-    input_variables=["contexto", "pergunta"],
-    template=PROMPT_TEMPLATE,
-)
+REGRAS OBRIGATÓRIAS DE CONTEÚDO E FORMATO:
+- Toda e qualquer resposta gerada por você deve obrigatoriamente iniciar com "Thought:". Nunca escreva nada antes de "Thought:".
+- Responda somente com base no conteúdo retornado pelas ferramentas (Observation).
+- Se a informação não estiver explicitamente no conteúdo retornado pelas ferramentas, sua resposta FINAL deve ser EXATAMENTE:
+  "Não tenho informações necessárias para responder sua pergunta."
+- Nunca invente ou use conhecimento externo.
+- Nunca produza opiniões ou interpretações além do que está escrito nos documentos fornecidos.
 
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
+EXEMPLOS DE PERGUNTAS FORA DO CONTEXTO:
+Pergunta: "Qual é a capital da França?"
+Thought: A pergunta é sobre a capital da França, que está fora do escopo dos documentos disponíveis sobre IA.
+Final Answer: "Não tenho informações necessárias para responder sua pergunta."
 
-def chat():
+Pergunta: "Quantos clientes temos em 2024?"
+Thought: A pergunta busca dados sobre clientes em 2024, o que não consta nos documentos de IA.
+Final Answer: "Não tenho informações necessárias para responder sua pergunta."
+
+Comece!
+
+Question: {input}
+Thought:{agent_scratchpad}"""
+
+def main():
+    load_dotenv()
+
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-3.5-flash",
+        temperature=0
+    )
+    tools = [vector_search]
+
+    prompt = PromptTemplate.from_template(PROMPT_TEMPLATE)
+    agent = create_react_agent(llm, tools, prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+
     print("Bem-vindo ao chat! Digite 'sair' para encerrar.")
     while True:
-        pergunta = input("Você: ")
-        if pergunta.lower() == "sair":
-            print("Encerrando o chat. Até mais!")
+        try:
+            pergunta = input("Você: ").strip()
+            if pergunta.lower() == 'sair':
+                print("Encerrando o chat. Até logo!")
+                break
+
+            if not pergunta:
+                print("Por favor, insira uma pergunta válida.")
+                continue
+
+            resultado = agent_executor.invoke({"input": pergunta})
+            resposta = resultado.get("output", "Não tenho informações necessárias para responder sua pergunta.")
+            print(f"Assistente: {resposta}\n")
+        except (KeyboardInterrupt, EOFError):
+            print("\nEncerrando o chat. Até logo!")
             break
-        results = store.similarity_search_with_score(query=pergunta, k=10)
-        for i, (doc, score) in enumerate(results, start=1):
-            print("=" * 50)
-            print(f"Resultado {i} (score: {score:.2f}):")
-            print("=" * 50)
-
-            print("\nTexto:\n")
-            print(doc.page_content.strip())
-
-            print("\nMetadados:\n")
-            for k, v in doc.metadata.items():
-                print(f"{k}: {v}")
+        except Exception as e:
+            print(f"Ocorreu um erro: {e}")
+            continue
 
 if __name__ == "__main__":
-    chat()
+    main()

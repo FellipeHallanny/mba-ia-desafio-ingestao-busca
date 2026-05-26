@@ -1,29 +1,38 @@
-PROMPT_TEMPLATE = """
-CONTEXTO:
-{contexto}
+import os
+from dotenv import load_dotenv
 
-REGRAS:
-- Responda somente com base no CONTEXTO.
-- Se a informação não estiver explicitamente no CONTEXTO, responda:
-  "Não tenho informações necessárias para responder sua pergunta."
-- Nunca invente ou use conhecimento externo.
-- Nunca produza opiniões ou interpretações além do que está escrito.
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_postgres import PGVector
+from langchain_core.tools import tool
 
-EXEMPLOS DE PERGUNTAS FORA DO CONTEXTO:
-Pergunta: "Qual é a capital da França?"
-Resposta: "Não tenho informações necessárias para responder sua pergunta."
+load_dotenv()
 
-Pergunta: "Quantos clientes temos em 2024?"
-Resposta: "Não tenho informações necessárias para responder sua pergunta."
+def format_docs(docs):
+    """Formata os documentos recuperados em uma string única"""
+    return "\n\n".join([f"Documento {i+1}:\n{doc.page_content}" for i, doc in enumerate(docs)])
 
-Pergunta: "Você acha isso bom ou ruim?"
-Resposta: "Não tenho informações necessárias para responder sua pergunta."
+@tool("vector_search")
+def vector_search(query: str) -> str:
+    """Busca informações no banco de dados vetorial para responder às perguntas do usuário."""
+    # Verify environment variables
+    for k in ("GOOGLE_API_KEY", "PGVECTOR_URL", "PGVECTOR_COLLECTION"):
+        if not os.getenv(k):
+            raise RuntimeError(f"Environment variable {k} is not set")
 
-PERGUNTA DO USUÁRIO:
-{pergunta}
+    # Initialize embeddings and vector store
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model=os.getenv("GEMINI_MODEL", "models/gemini-embedding-001")
+    )
 
-RESPONDA A "PERGUNTA DO USUÁRIO"
-"""
+    # Initialize PGVector store
+    store = PGVector(
+        embeddings=embeddings,
+        collection_name=os.getenv("PGVECTOR_COLLECTION"),
+        connection=os.getenv("PGVECTOR_URL"),
+        use_jsonb=True,
+    )
 
-def search_prompt(question=None):
-    pass
+    # Retrieve relevant documents
+    docs = store.similarity_search(query, k=10)
+    
+    return format_docs(docs)
