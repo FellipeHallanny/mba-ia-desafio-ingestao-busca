@@ -40,7 +40,17 @@ Antes de iniciar, certifique-se de ter os seguintes softwares instalados em sua 
 
 ## ⚙️ Variáveis de Ambiente
 
-Crie um arquivo `.env` na raiz do projeto (copiando as chaves abaixo) e configure os valores adequados:
+Crie um arquivo `.env` na raiz do projeto copiando o arquivo de exemplo `.env.example` e configure os valores adequados:
+
+```bash
+# Linux/macOS
+cp .env.example .env
+
+# Windows (PowerShell)
+copy .env.example .env
+```
+
+Abaixo estão as variáveis presentes no arquivo:
 
 | Variável | Tipo | Descrição | Exemplo / Padrão |
 | :--- | :--- | :--- | :--- |
@@ -65,6 +75,7 @@ A aplicação adota um padrão clássico de RAG dividido em duas fases fundament
 ```text
 mba-ia-desafio-ingestao-busca/
 ├── .env                  # Arquivo de configuração de chaves e parâmetros (não comitado)
+├── .env.example          # Template de exemplo para as variáveis de ambiente
 ├── docker-compose.yml    # Definição do serviço PostgreSQL + pgvector
 ├── document.pdf          # PDF de referência original
 ├── requirements.txt      # Dependências e bibliotecas Python
